@@ -2,9 +2,7 @@ import re
 import time
 import os
 import math
-import csv
 import glob
-import argparse
 import sys
 
 resolution_to_altitude = {'360': 1, '480': 2, '720': 3, '1080': 4, '1440': 5, '2160': 6}
@@ -17,8 +15,8 @@ else:
         outputs.append(q[8:])
 output_file_number = None
 file = open('metrics/all_metrics.csv', 'w')
-file.writelines(['Name,r1,r2,L(buffer size),#sample,Average Resolution,Sum of Switches,Average Altitude,Average Video Bitrate,'
-                 'Mean Network Throughput r1,Mean Network Throughput r2,MOS,Stallings,'
+file.writelines(['Name,r1,r2,L(buffer size),#sample,MOS(resolution),Average Resolution,Sum of Switches,Average Altitude,Average Video Bitrate,'
+                 'Mean Network Throughput r1,Mean Network Throughput r2,MOS(stallings),Stallings,'
                  'Total Stalling Time,Mean Stalling Time,Total Network Usage Time,Initial Playback Delay,'
                  'Number of cached bits delivered,Number of non-cached bits delivered,Cache Miss Ratio,'
                  'Cache Hit Ratio,Backhaul traffic ratio\n'])
@@ -41,6 +39,7 @@ for output_file in outputs:
     manifest_time = 0
     td_1 = 0
     number_of_stallings = 0
+    sum_mos_res = 0
     sum_stalling_duration = 0
     sum_size = 0
     sum_bitrate = 0
@@ -66,6 +65,21 @@ for output_file in outputs:
 
                 # timestamp in epoch time
                 seconds = int(time.mktime(time.strptime(date_time, pattern)))
+
+                if resolution == '360':
+                    mos_res = 2.07744
+                elif resolution == '480':
+                    mos_res = 3.02246
+                elif resolution == '720':
+                    mos_res = 3.97185
+                elif resolution == '1080':
+                    mos_res = 4.47112
+                elif resolution == '1440':
+                    mos_res = 4.52586
+                elif resolution == '2160':
+                    mos_res = 4.58036
+
+                sum_mos_res += mos_res
 
                 if resolution_before is None:
                     resolution_before = resolution
@@ -122,6 +136,14 @@ for output_file in outputs:
                     sum_cache_hit += 1
                     sum_size_cache_hit += size
 
+                momentary_network_usage = seconds - manifest_time
+                momentary_throughput_r1 = ((sum_size * 8) / momentary_network_usage) / 1000000  # Mbps
+                momentary_throughput_r2 = (((sum_size - sum_size_cache_hit) * 8) / momentary_network_usage) / 1000000  # Mbps
+                if momentary_throughput_r2 == 0.0:
+                    r1_divided_by_r2 = 0
+                else:
+                    r1_divided_by_r2 = momentary_throughput_r1 / momentary_throughput_r2
+
                 print('----------')
                 print(line)
                 print('video_name', video_name)
@@ -138,12 +160,7 @@ for output_file in outputs:
                 print('altitude', altitude)
                 print('sum_size', sum_size)
                 data_to_csv.append(
-                    str(segment) + ', ' + str(resolution) + ', ' + str(switch) + ', ' + str(altitude) + ', ' + str(
-                        bitrate) + ', ' + str(
-                        cache_hit) + ', ' + str(size) + ', ' + str(stalling) + '\n')
-                # data_to_csv.append({'Segment Number': segment, 'Resolution': resolution, 'Switch': switch,
-                #                     'Altitude': altitude, 'Video Bitrate (Mbps)': bitrate, 'Cache hit': cache_hit,
-                #                     'Size (Bytes)': size, 'Stallings': stalling})
+                    str(segment) + ', ' + str(resolution) + ', ' + str(switch) + ', ' + str(altitude) + ', ' + str(bitrate) + ', ' + str(cache_hit) + ', ' + str(size) + ', ' + str(stalling) + ', ' + str(mos_res) + ', ' + str(seconds_diff) + ', ' + str(stalling_duration) + ', ' + str(r1_divided_by_r2) + '\n')
                 print('----------')
 
                 resolution_before = resolution
@@ -161,6 +178,7 @@ for output_file in outputs:
     avg_bitrate = sum_bitrate / 61
     avg_altitude = sum_altitude / 61
     avg_resolution = sum_resolution / 61
+    avg_mos_res = sum_mos_res / 61
     percentage_cache_hit = (sum_cache_hit / 61) * 100
 
     percentage_cache_miss = ((61 - sum_cache_hit) / 61) * 100
@@ -185,53 +203,41 @@ for output_file in outputs:
 
     all_metrics = [
         '=============================================================================================================' +
-        '\nAverage Resolution                                                                 = ' + str(
-            avg_resolution) +
+        '\nAverage Resolution                                                                 = ' + str(avg_resolution) +
         '\n------------------------------------------------------------------------------------------------------------' +
         '\nSum of Switches                                                                    = ' + str(sum_switches) +
         '\n------------------------------------------------------------------------------------------------------------' +
         '\nAverage Altitude                                                                   = ' + str(avg_altitude) +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nAverage Video Bitrate                                                              = ' + str(
-            avg_bitrate) + ' Mbps' +
+        '\nAverage Video Bitrate                                                              = ' + str(avg_bitrate) + ' Mbps' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nMean Network Throughput r1 = (non-cached +cached bits) / total network usage time  = ' + str(
-            throughput_r1) + ' Mbps' +
+        '\nMean Network Throughput r1 = (non-cached +cached bits) / total network usage time  = ' + str(throughput_r1) + ' Mbps' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nMean Network Throughput r2 = non-cached / total network usage time                 = ' + str(
-            throughput_r2) + ' Mbps' +
+        '\nMean Network Throughput r2 = non-cached / total network usage time                 = ' + str(throughput_r2) + ' Mbps' +
         '\n------------------------------------------------------------------------------------------------------------' +
         '\nMOS (for stallings)                                                                = ' + str(mos_stallings) +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nStallings                                                                          = ' + str(
-            number_of_stallings) +
+        '\nMOS (for resolutions)                                                              = ' + str(avg_mos_res) +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nTotal Stalling Time                                                                = ' + str(
-            sum_stalling_duration) + ' seconds' +
+        '\nStallings                                                                          = ' + str(number_of_stallings) +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nMean Stalling Time                                                                 = ' + str(
-            mean_stalling_time) + ' seconds' +
+        '\nTotal Stalling Time                                                                = ' + str(sum_stalling_duration) + ' seconds' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nTotal Network Usage Time                                                           = ' + str(
-            network_usage) + ' seconds' +
+        '\nMean Stalling Time                                                                 = ' + str(mean_stalling_time) + ' seconds' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nInitial Playback Delay                                                             = ' + str(
-            initial_playback_delay) + ' seconds' +
+        '\nTotal Network Usage Time                                                           = ' + str(network_usage) + ' seconds' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nNumber of cached bits delivered                                                    = ' + str(
-            sum_size_cache_hit) + ' bits' +
+        '\nInitial Playback Delay                                                             = ' + str(initial_playback_delay) + ' seconds' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nNumber of non-cached bits delivered                                                = ' + str(
-            sum_size_cache_miss) + ' bits' +
+        '\nNumber of cached bits delivered                                                    = ' + str(sum_size_cache_hit) + ' bits' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nCache Miss Ratio                                                                   = ' + str(
-            percentage_cache_miss) + '%' +
+        '\nNumber of non-cached bits delivered                                                = ' + str(sum_size_cache_miss) + ' bits' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nCache Hit Ratio                                                                    = ' + str(
-            percentage_cache_hit) + '%' +
+        '\nCache Miss Ratio                                                                   = ' + str(percentage_cache_miss) + '%' +
         '\n------------------------------------------------------------------------------------------------------------' +
-        '\nBackhaul traffic ratio = non cached bits / total size                              = ' + str(
-            traffic_ratio_percentage) + '%' +
+        '\nCache Hit Ratio                                                                    = ' + str(percentage_cache_hit) + '%' +
+        '\n------------------------------------------------------------------------------------------------------------' +
+        '\nBackhaul traffic ratio = non cached bits / total size                              = ' + str(traffic_ratio_percentage) + '%' +
         '\n=============================================================================================================']
     file.close()
     if len(sys.argv) > 1:
@@ -240,12 +246,12 @@ for output_file in outputs:
         file1 = open("metrics/metrics" + str(output_file[6:]), "w")
 
     file1.writelines(['Segment Number, Resolution, Switch, Altitude, Video Bitrate (Mbps), Cache hit ,Size (Bytes) ,'
-                      'Stallings \n'] + data_to_csv + all_metrics)
+                      'Stallings, MOS, Segment Duration, Stalling Duration, R1/R2 \n'] + data_to_csv + all_metrics)
     file1.close()
     with open('metrics/all_metrics.csv', 'a') as fd:
         parts = output_file.split('_')
         fd.write(
-            str([output_file,float(parts[1]),float(parts[2]),int(parts[3]),int(parts[4][:-4]), avg_resolution,
+            str([output_file,float(parts[1]),float(parts[2]),int(parts[3]),int(parts[4][:-4]), avg_mos_res, avg_resolution,
                  sum_switches, avg_altitude,avg_bitrate, throughput_r1, throughput_r2, mos_stallings,
                  number_of_stallings, sum_stalling_duration, mean_stalling_time, network_usage, initial_playback_delay,
                  sum_size_cache_hit, sum_size_cache_miss, percentage_cache_miss, percentage_cache_hit,
